@@ -1,4 +1,3 @@
 .git
-.gitignore
-*.zip
-backend-bin
+.DS_Store
+*.log

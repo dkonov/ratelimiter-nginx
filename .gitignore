@@ -1,4 +1,2 @@
-*.log
-*.pid
 .DS_Store
-backend-bin
+*.log
