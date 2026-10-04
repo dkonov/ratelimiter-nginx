@@ -1,5 +1,7 @@
 import java.net.URI;
-import java.net.http.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 
 public final class RateLimiter {
@@ -10,7 +12,9 @@ public final class RateLimiter {
     public RateLimiter(String baseUrl, String service) {
         this.checkUri = URI.create(baseUrl.replaceAll("/+$", "") + "/check");
         this.service = service;
-        this.client = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(20)).build();
+        this.client = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofMillis(20))
+            .build();
     }
 
     public Decision allow(String endpoint) {
@@ -19,15 +23,30 @@ public final class RateLimiter {
                 .timeout(Duration.ofMillis(50))
                 .header("X-RateLimit-Service", service)
                 .header("X-RateLimit-Endpoint", endpoint)
-                .POST(HttpRequest.BodyPublishers.noBody()).build();
-            int s = client.send(req, HttpResponse.BodyHandlers.discarding()).statusCode();
-            if (s >= 200 && s < 300) return new Decision(true, 200);
-            if (s == 429) return new Decision(false, 429);
-            if (s == 404) return new Decision(false, 500);
-            return new Decision(true, 200);
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+
+            int status = client.send(req, HttpResponse.BodyHandlers.discarding()).statusCode();
+
+            if (status >= 200 && status < 300) {
+                return new Decision(true, 200, false, false);
+            }
+            if (status == 429) {
+                return new Decision(false, 429, false, false);
+            }
+            if (status == 404) {
+                return new Decision(false, 500, false, false);
+            }
+
+            return unavailableDecision();
         } catch (Exception e) {
-            return new Decision(true, 200);
+            return unavailableDecision();
         }
     }
-    public record Decision(boolean allowed, int status) {}
+
+    private Decision unavailableDecision() {
+        return new Decision(true, 200, true, true);
+    }
+
+    public record Decision(boolean allowed, int status, boolean bypass, boolean unavailable) {}
 }
