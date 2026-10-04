@@ -1,79 +1,67 @@
 # Java rate limiter client
 
-Minimal framework-independent Java client for the centralized nginx2 rate limiter.
-
-The implementation is in [`src/RateLimiter.java`](src/RateLimiter.java) and uses only the JDK HTTP client.
+Minimal framework-independent Java client for the centralized nginx2 rate limiter. The implementation is in [`src/RateLimiter.java`](src/RateLimiter.java) and uses only the JDK `java.net.http.HttpClient`.
 
 ## Requirements
 
-Java 21+ is recommended for the demo application. The `RateLimiter` client itself uses standard `java.net.http.HttpClient` APIs.
+Java 21+ is recommended for the demo application.
 
-## Install into another Java application
+## Install
 
-Copy `RateLimiter.java` into your source tree and optionally place it in your own package.
-
-Example:
+Copy `RateLimiter.java` into your source tree and optionally add your package declaration:
 
 ```text
 src/main/java/com/example/ratelimiter/RateLimiter.java
 ```
 
-If you add a package declaration, import it normally from application code.
-
-No Maven/Gradle dependency is required for this standalone source-file version.
+No Maven or Gradle dependency is required for this standalone source-file version.
 
 ## Create client
 
 ```java
-RateLimiter rl = new RateLimiter(
-    "http://nginx2:8080",
-    "demo"
-);
+RateLimiter rl = new RateLimiter("http://nginx2:8080", "demo");
 ```
 
-Arguments:
+Current transport settings:
 
-- `baseUrl` — nginx2 base URL.
-- `service` — logical service part of the rate-limit key.
+- protocol: **HTTP/1.1**;
+- connect timeout: 20 ms;
+- request timeout: **50 ms**.
 
-Current settings:
-
-- connect timeout: 20 ms
-- request timeout: **50 ms**
+The client instance should be long-lived and reused so the JDK can reuse persistent connections.
 
 ## API
 
 ```java
-RateLimiter.Decision decision = rl.allow("order");
+RateLimiter.Decision d = rl.allow("order");
 ```
 
-This checks the logical key:
-
-```text
-demo:order
-```
-
-Decision record:
+This checks the logical key `demo:order`.
 
 ```java
 public record Decision(
     boolean allowed,
     int status,
     boolean bypass,
-    boolean unavailable
+    boolean unavailable,
+    String unavailableReason
 ) {}
 ```
 
 ## Decision semantics
 
-| nginx2 result | allowed | status | bypass | unavailable |
-|---|---:|---:|---:|---:|
-| `2xx` | true | 200 | false | false |
-| `429` | false | 429 | false | false |
-| `404` | false | 500 | false | false |
-| timeout / connection error / `5xx` | true | 200 | true | true |
+| nginx2 result | allowed | status | bypass | unavailable | reason |
+|---|---:|---:|---:|---:|---|
+| `2xx` | true | 200 | false | false | empty |
+| `429` | false | 429 | false | false | empty |
+| `404` | false | 500 | false | false | empty |
+| request/connect timeout | true | 200 | true | true | `timeout` |
+| connection failure | true | 200 | true | true | `connect_error` |
+| other I/O failure | true | 200 | true | true | `io_error` |
+| nginx2 `5xx` | true | 200 | true | true | `5xx` |
+| other unexpected limiter result | true | 200 | true | true | `other` |
 
-The last case is **fail-open**.
+Failures are **fail-open** by design.
 
 ## Plain Java example
 
@@ -85,23 +73,20 @@ if (!d.allowed()) {
     return;
 }
 
-// Execute application work here.
-```
-
-If the application exposes the limiter decision to callers, propagate diagnostic headers:
-
-```java
 if (d.bypass()) {
     responseHeaders.add("X-RateLimit-Bypass", "true");
 }
 if (d.unavailable()) {
     responseHeaders.add("X-RateLimit-Unavailable", "true");
+    responseHeaders.add("X-RateLimit-Unavailable-Reason", d.unavailableReason());
 }
+
+// Protected application work starts here.
 ```
 
 ## Spring MVC example
 
-The client does not depend on Spring. A typical wrapper can look like:
+The client has no Spring dependency:
 
 ```java
 @RestController
@@ -123,6 +108,7 @@ public class OrdersController {
         }
         if (d.unavailable()) {
             response.header("X-RateLimit-Unavailable", "true");
+            response.header("X-RateLimit-Unavailable-Reason", d.unavailableReason());
         }
 
         return response.body("ok");
@@ -130,28 +116,26 @@ public class OrdersController {
 }
 ```
 
-## Connection behavior
+## Why HTTP/1.1 is forced
 
-`HttpClient` is created once and reused. Keep the `RateLimiter` instance long-lived rather than creating it per request.
-
-The JDK client manages connection reuse internally.
+The limiter endpoint is a tiny synchronous request to standard NGINX. HTTP/1.1 avoids unnecessary protocol negotiation/fallback behavior and makes connection reuse predictable for this demo.
 
 ## Integration rule
 
-Pass a stable logical policy name to `allow()` instead of coupling the limiter directly to a physical HTTP path.
-
-Example:
+Pass a stable logical policy name to `allow()` instead of the physical HTTP path:
 
 ```text
 /api/java/order -> allow("order") -> demo:order
 ```
 
-Another Go or Python service can use the same `demo:order` key and consume the same global limiter capacity.
+Go or Python services can use the same `demo:order` key and consume the same global limiter capacity.
 
-## Production considerations
+## Operational metrics
 
-- Reuse one `RateLimiter` instance per application process or component.
-- Monitor `bypass` and `unavailable` decisions.
-- The current client is intentionally fail-open for timeout/network/5xx failures.
-- `404` is treated as configuration error and returned as application `500`.
-- Keep limiter calls outside the business work itself: ask for permission first, then perform the protected work.
+Monitor at least:
+
+- `bypass`;
+- `unavailable`;
+- `unavailable_reason` (`timeout`, `connect_error`, `io_error`, `5xx`, `other`).
+
+A sustained non-zero bypass rate means effective application throughput can exceed the configured nginx2 rate.
