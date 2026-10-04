@@ -1,14 +1,10 @@
 # Go rate limiter client
 
-Minimal framework-independent Go client for the centralized nginx2 rate limiter.
+Minimal framework-independent Go client for the centralized nginx2 rate limiter. The implementation is in [`ratelimiter.go`](ratelimiter.go) and uses only the Go standard library.
 
-The implementation is in [`ratelimiter.go`](ratelimiter.go) and depends only on the Go standard library.
+## Protocol
 
-## Purpose
-
-Before application work starts, the client synchronously asks nginx2 whether the logical rate-limit key still has capacity.
-
-Protocol:
+Before application work starts, the client synchronously asks nginx2 for permission:
 
 ```http
 POST /check
@@ -16,11 +12,11 @@ X-RateLimit-Service: demo
 X-RateLimit-Endpoint: order
 ```
 
-The client does not know or care which HTTP framework the application uses.
+The physical application URL and the logical limiter key are independent.
 
-## Install into another Go application
+## Install
 
-Copy the `ratelimiter` directory into your module, for example:
+Copy the `ratelimiter` directory into your Go module:
 
 ```text
 my-service/
@@ -36,23 +32,17 @@ Then import it using your module path:
 import "my-service/ratelimiter"
 ```
 
+No third-party dependencies are required.
+
 ## Create client
 
 ```go
-rl := ratelimiter.New(
-    "http://nginx2:8080",
-    "demo",
-)
+rl := ratelimiter.New("http://nginx2:8080", "demo")
 ```
 
-Arguments:
+The client appends `/check` automatically. Current total request timeout: **50 ms**.
 
-- `baseURL` — nginx2 base URL.
-- `service` — logical service part of the rate-limit key.
-
-The client appends `/check` automatically.
-
-Current total request timeout: **50 ms**.
+Create the client once and reuse it. `http.Client` provides connection pooling and keep-alive reuse.
 
 ## API
 
@@ -66,33 +56,32 @@ Example:
 d := rl.Allow(r.Context(), "order")
 ```
 
-This produces the logical key:
-
-```text
-demo:order
-```
-
-`Decision`:
+This checks the logical key `demo:order`.
 
 ```go
 type Decision struct {
-    Allowed     bool
-    Status      int
-    Bypass      bool
-    Unavailable bool
+    Allowed           bool
+    Status            int
+    Bypass            bool
+    Unavailable       bool
+    UnavailableReason string
 }
 ```
 
 ## Decision semantics
 
-| nginx2 result | Allowed | Status | Bypass | Unavailable |
-|---|---:|---:|---:|---:|
-| `2xx` | true | 200 | false | false |
-| `429` | false | 429 | false | false |
-| `404` | false | 500 | false | false |
-| timeout / connection error / `5xx` | true | 200 | true | true |
+| nginx2 result | Allowed | Status | Bypass | Unavailable | Reason |
+|---|---:|---:|---:|---:|---|
+| `2xx` | true | 200 | false | false | empty |
+| `429` | false | 429 | false | false | empty |
+| `404` | false | 500 | false | false | empty |
+| timeout | true | 200 | true | true | `timeout` |
+| connect failure | true | 200 | true | true | `connect_error` |
+| other network I/O failure | true | 200 | true | true | `io_error` |
+| nginx2 `5xx` | true | 200 | true | true | `5xx` |
+| other unexpected limiter result | true | 200 | true | true | `other` |
 
-The last case is **fail-open**: application work is allowed when nginx2 cannot provide a decision.
+Failures are **fail-open** by design: application work continues when nginx2 cannot provide a valid decision.
 
 ## net/http example
 
@@ -106,6 +95,7 @@ func ordersHandler(rl *ratelimiter.Client) http.HandlerFunc {
         }
         if d.Unavailable {
             w.Header().Set("X-RateLimit-Unavailable", "true")
+            w.Header().Set("X-RateLimit-Unavailable-Reason", d.UnavailableReason)
         }
 
         if !d.Allowed {
@@ -113,7 +103,7 @@ func ordersHandler(rl *ratelimiter.Client) http.HandlerFunc {
             return
         }
 
-        // Application work starts only after the limiter decision.
+        // Protected application work starts here.
         w.WriteHeader(http.StatusOK)
     }
 }
@@ -121,9 +111,7 @@ func ordersHandler(rl *ratelimiter.Client) http.HandlerFunc {
 
 ## Integration rule
 
-Use a stable logical policy name rather than passing the physical URL as the limiter key.
-
-For example these unrelated HTTP paths can intentionally share one policy:
+Use stable logical policy names rather than physical URLs. For example:
 
 ```text
 /api/go/ordrer     -> demo:order
@@ -131,12 +119,14 @@ For example these unrelated HTTP paths can intentionally share one policy:
 /api/python/order  -> demo:order
 ```
 
-That is how the global cross-application limit is achieved.
+All callers using the same key consume the same global limiter capacity.
 
-## Production considerations
+## Operational metrics
 
-- Keep the client instance long-lived; do not create one per request.
-- The standard `http.Client` reuses connections automatically.
-- The current library is fail-open by design.
-- `Bypass=true` should be monitored because it means the request was not explicitly allowed by nginx2.
-- A `404` is treated as configuration error, not as fail-open.
+Monitor at least:
+
+- `bypass` — requests allowed without a valid limiter decision;
+- `unavailable` — limiter decision could not be obtained;
+- `unavailable_reason` — `timeout`, `connect_error`, `io_error`, `5xx`, or `other`.
+
+A sustained non-zero bypass rate indicates that the effective application throughput can exceed the configured nginx2 rate.
