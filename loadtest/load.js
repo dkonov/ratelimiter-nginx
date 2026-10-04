@@ -19,7 +19,7 @@ const endpoints = [
 const metrics = {};
 
 for (const e of endpoints) {
-  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
+  for (const suffix of ['200', '429', 'executed', 'blocked', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
     metrics[e.name + '_' + suffix] = new Counter(e.name + '_' + suffix);
   }
   for (const b of e.backends) {
@@ -28,7 +28,7 @@ for (const e of endpoints) {
 }
 
 for (const policy of ['order', 'common', 'search']) {
-  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
+  for (const suffix of ['200', '429', 'executed', 'blocked', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
     metrics[policy + '_' + suffix] = new Counter(policy + '_' + suffix);
   }
 }
@@ -86,6 +86,10 @@ function hit(e) {
 
   const bypass = Boolean(body && body.bypass === true) || headerTrue(r.headers, 'X-RateLimit-Bypass');
   const unavailable = Boolean(body && body.unavailable === true) || headerTrue(r.headers, 'X-RateLimit-Unavailable');
+  const executed = body && typeof body.executed === 'boolean'
+    ? body.executed
+    : headerValue(r.headers, 'X-Backend-Executed').toLowerCase() === 'true';
+  const executionKnown = Boolean(body && typeof body.executed === 'boolean') || headerValue(r.headers, 'X-Backend-Executed') !== '';
 
   let unavailableReason = body && typeof body.unavailable_reason === 'string'
     ? body.unavailable_reason
@@ -93,6 +97,13 @@ function hit(e) {
 
   if (unavailable && !unavailableReasons.includes(unavailableReason)) {
     unavailableReason = 'other';
+  }
+
+  if (executionKnown) {
+    metrics[e.name + '_executed'].add(executed ? 1 : 0);
+    metrics[e.policy + '_executed'].add(executed ? 1 : 0);
+    metrics[e.name + '_blocked'].add(executed ? 0 : 1);
+    metrics[e.policy + '_blocked'].add(executed ? 0 : 1);
   }
 
   metrics[e.name + '_bypass'].add(bypass ? 1 : 0);
