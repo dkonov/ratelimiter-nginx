@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        allowed, status, bypass, unavailable = RL.allow(policy)
+        allowed, status, bypass, unavailable, unavailable_reason = RL.allow(policy)
         body = json.dumps({
             "backend": INSTANCE,
             "endpoint": self.path,
@@ -33,6 +33,7 @@ class Handler(BaseHTTPRequestHandler):
             "allowed": allowed,
             "bypass": bypass,
             "unavailable": unavailable,
+            "unavailable_reason": unavailable_reason,
         }).encode()
 
         self.send_response(status)
@@ -42,6 +43,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-RateLimit-Bypass", "true")
         if unavailable:
             self.send_header("X-RateLimit-Unavailable", "true")
+            self.send_header("X-RateLimit-Unavailable-Reason", unavailable_reason)
         self.end_headers()
         self.wfile.write(body)
 
