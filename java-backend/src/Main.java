@@ -1,3 +1,4 @@
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
@@ -26,30 +27,45 @@ public class Main {
         return x -> {
             RateLimiter.Decision d = RL.allow(policy);
 
-            String body = String.format(
-                "{\"backend\":\"%s\",\"endpoint\":\"%s\",\"policy\":\"demo:%s\",\"allowed\":%s,\"bypass\":%s,\"unavailable\":%s,\"unavailable_reason\":\"%s\"}",
-                INSTANCE,
-                x.getRequestURI().getPath(),
-                policy,
-                d.allowed(),
-                d.bypass(),
-                d.unavailable(),
-                d.unavailableReason()
-            );
-            byte[] b = body.getBytes(StandardCharsets.UTF_8);
-
-            x.getResponseHeaders().set("Content-Type", "application/json");
-            if (d.bypass()) {
-                x.getResponseHeaders().set("X-RateLimit-Bypass", "true");
-            }
-            if (d.unavailable()) {
-                x.getResponseHeaders().set("X-RateLimit-Unavailable", "true");
-                x.getResponseHeaders().set("X-RateLimit-Unavailable-Reason", d.unavailableReason());
+            // A denied limiter decision stops this request here. Protected
+            // business work below this point is not executed.
+            if (!d.allowed()) {
+                writeResponse(x, policy, d, false);
+                return;
             }
 
-            x.sendResponseHeaders(d.status(), b.length);
-            x.getResponseBody().write(b);
-            x.close();
+            // Protected business work would execute here.
+            boolean executed = true;
+            writeResponse(x, policy, d, executed);
         };
+    }
+
+    static void writeResponse(HttpExchange x, String policy, RateLimiter.Decision d, boolean executed) throws Exception {
+        String body = String.format(
+            "{\"backend\":\"%s\",\"endpoint\":\"%s\",\"policy\":\"demo:%s\",\"allowed\":%s,\"executed\":%s,\"bypass\":%s,\"unavailable\":%s,\"unavailable_reason\":\"%s\"}",
+            INSTANCE,
+            x.getRequestURI().getPath(),
+            policy,
+            d.allowed(),
+            executed,
+            d.bypass(),
+            d.unavailable(),
+            d.unavailableReason()
+        );
+        byte[] b = body.getBytes(StandardCharsets.UTF_8);
+
+        x.getResponseHeaders().set("Content-Type", "application/json");
+        x.getResponseHeaders().set("X-Backend-Executed", Boolean.toString(executed));
+        if (d.bypass()) {
+            x.getResponseHeaders().set("X-RateLimit-Bypass", "true");
+        }
+        if (d.unavailable()) {
+            x.getResponseHeaders().set("X-RateLimit-Unavailable", "true");
+            x.getResponseHeaders().set("X-RateLimit-Unavailable-Reason", d.unavailableReason());
+        }
+
+        x.sendResponseHeaders(d.status(), b.length);
+        x.getResponseBody().write(b);
+        x.close();
     }
 }
