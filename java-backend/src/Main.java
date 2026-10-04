@@ -1,6 +1,7 @@
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 
@@ -40,7 +41,7 @@ public class Main {
         };
     }
 
-    static void writeResponse(HttpExchange x, String policy, RateLimiter.Decision d, boolean executed) throws Exception {
+    static void writeResponse(HttpExchange x, String policy, RateLimiter.Decision d, boolean executed) throws IOException {
         String body = String.format(
             "{\"backend\":\"%s\",\"endpoint\":\"%s\",\"policy\":\"demo:%s\",\"allowed\":%s,\"executed\":%s,\"bypass\":%s,\"unavailable\":%s,\"unavailable_reason\":\"%s\"}",
             INSTANCE,
