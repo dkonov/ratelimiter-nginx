@@ -27,13 +27,14 @@ public class Main {
             RateLimiter.Decision d = RL.allow(policy);
 
             String body = String.format(
-                "{\"backend\":\"%s\",\"endpoint\":\"%s\",\"policy\":\"demo:%s\",\"allowed\":%s,\"bypass\":%s,\"unavailable\":%s}",
+                "{\"backend\":\"%s\",\"endpoint\":\"%s\",\"policy\":\"demo:%s\",\"allowed\":%s,\"bypass\":%s,\"unavailable\":%s,\"unavailable_reason\":\"%s\"}",
                 INSTANCE,
                 x.getRequestURI().getPath(),
                 policy,
                 d.allowed(),
                 d.bypass(),
-                d.unavailable()
+                d.unavailable(),
+                d.unavailableReason()
             );
             byte[] b = body.getBytes(StandardCharsets.UTF_8);
 
@@ -43,6 +44,7 @@ public class Main {
             }
             if (d.unavailable()) {
                 x.getResponseHeaders().set("X-RateLimit-Unavailable", "true");
+                x.getResponseHeaders().set("X-RateLimit-Unavailable-Reason", d.unavailableReason());
             }
 
             x.sendResponseHeaders(d.status(), b.length);
