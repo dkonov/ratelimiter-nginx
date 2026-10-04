@@ -30,16 +30,18 @@ func wrap(instance, policy string, rl *ratelimiter.Client) http.HandlerFunc {
         }
         if d.Unavailable {
             w.Header().Set("X-RateLimit-Unavailable", "true")
+            w.Header().Set("X-RateLimit-Unavailable-Reason", d.UnavailableReason)
         }
 
         w.WriteHeader(d.Status)
         json.NewEncoder(w).Encode(map[string]any{
-            "backend":     instance,
-            "endpoint":    r.URL.Path,
-            "policy":      "demo:" + policy,
-            "allowed":     d.Allowed,
-            "bypass":      d.Bypass,
-            "unavailable": d.Unavailable,
+            "backend":            instance,
+            "endpoint":           r.URL.Path,
+            "policy":             "demo:" + policy,
+            "allowed":            d.Allowed,
+            "bypass":             d.Bypass,
+            "unavailable":        d.Unavailable,
+            "unavailable_reason": d.UnavailableReason,
         })
     }
 }
