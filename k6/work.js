@@ -10,6 +10,10 @@ const responses200 = new Counter('responses_200');
 const responses429 = new Counter('responses_429');
 const responsesUnexpected = new Counter('responses_unexpected');
 
+// For this load test both 200 and 429 are valid protocol outcomes.
+// Anything else should remain visible in k6 as http_req_failed.
+http.setResponseCallback(http.expectedStatuses(200, 429));
+
 export const options = {
   scenarios: {
     work: {
