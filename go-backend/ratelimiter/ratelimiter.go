@@ -2,6 +2,8 @@ package ratelimiter
 
 import (
     "context"
+    "errors"
+    "net"
     "net/http"
     "strings"
     "time"
@@ -14,10 +16,11 @@ type Client struct {
 }
 
 type Decision struct {
-    Allowed     bool
-    Status      int
-    Bypass      bool
-    Unavailable bool
+    Allowed           bool
+    Status            int
+    Bypass            bool
+    Unavailable       bool
+    UnavailableReason string
 }
 
 func New(baseURL, service string) *Client {
@@ -31,7 +34,7 @@ func New(baseURL, service string) *Client {
 func (c *Client) Allow(ctx context.Context, endpoint string) Decision {
     req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, http.NoBody)
     if err != nil {
-        return unavailableDecision()
+        return unavailableDecision("other")
     }
 
     req.Header.Set("X-RateLimit-Service", c.service)
@@ -39,7 +42,7 @@ func (c *Client) Allow(ctx context.Context, endpoint string) Decision {
 
     resp, err := c.client.Do(req)
     if err != nil {
-        return unavailableDecision()
+        return unavailableDecision(classifyError(err))
     }
     defer resp.Body.Close()
 
@@ -52,15 +55,40 @@ func (c *Client) Allow(ctx context.Context, endpoint string) Decision {
     if resp.StatusCode == 404 {
         return Decision{Allowed: false, Status: 500}
     }
+    if resp.StatusCode >= 500 {
+        return unavailableDecision("5xx")
+    }
 
-    return unavailableDecision()
+    return unavailableDecision("other")
 }
 
-func unavailableDecision() Decision {
+func classifyError(err error) string {
+    if errors.Is(err, context.DeadlineExceeded) {
+        return "timeout"
+    }
+
+    var netErr net.Error
+    if errors.As(err, &netErr) && netErr.Timeout() {
+        return "timeout"
+    }
+
+    var opErr *net.OpError
+    if errors.As(err, &opErr) {
+        if opErr.Op == "dial" {
+            return "connect_error"
+        }
+        return "io_error"
+    }
+
+    return "io_error"
+}
+
+func unavailableDecision(reason string) Decision {
     return Decision{
-        Allowed:     true,
-        Status:      200,
-        Bypass:      true,
-        Unavailable: true,
+        Allowed:           true,
+        Status:            200,
+        Bypass:            true,
+        Unavailable:       true,
+        UnavailableReason: reason,
     }
 }
