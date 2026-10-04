@@ -16,19 +16,20 @@ const endpoints = [
 ];
 
 const metrics = {};
+
 for (const e of endpoints) {
-  metrics[e.name + '_200'] = new Counter(e.name + '_200');
-  metrics[e.name + '_429'] = new Counter(e.name + '_429');
-  metrics[e.name + '_unexpected'] = new Counter(e.name + '_unexpected');
+  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected']) {
+    metrics[e.name + '_' + suffix] = new Counter(e.name + '_' + suffix);
+  }
   for (const b of e.backends) {
     metrics[e.name + '_' + b] = new Counter(e.name + '_' + b);
   }
 }
 
 for (const policy of ['order', 'common', 'search']) {
-  metrics[policy + '_200'] = new Counter(policy + '_200');
-  metrics[policy + '_429'] = new Counter(policy + '_429');
-  metrics[policy + '_unexpected'] = new Counter(policy + '_unexpected');
+  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected']) {
+    metrics[policy + '_' + suffix] = new Counter(policy + '_' + suffix);
+  }
 }
 
 export const options = { scenarios: {} };
@@ -56,6 +57,18 @@ function hit(e) {
   } else {
     metrics[e.name + '_unexpected'].add(1);
     metrics[e.policy + '_unexpected'].add(1);
+  }
+
+  const bypass = r.headers['X-RateLimit-Bypass'] === 'true';
+  const unavailable = r.headers['X-RateLimit-Unavailable'] === 'true';
+
+  if (bypass) {
+    metrics[e.name + '_bypass'].add(1);
+    metrics[e.policy + '_bypass'].add(1);
+  }
+  if (unavailable) {
+    metrics[e.name + '_unavailable'].add(1);
+    metrics[e.policy + '_unavailable'].add(1);
   }
 
   try {
