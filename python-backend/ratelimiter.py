@@ -1,4 +1,5 @@
 import http.client
+import socket
 import threading
 from urllib.parse import urlparse
 
@@ -30,13 +31,24 @@ class RateLimiter:
             r.read()
 
             if 200 <= r.status < 300:
-                return True, 200, False, False
+                return True, 200, False, False, ""
             if r.status == 429:
-                return False, 429, False, False
+                return False, 429, False, False, ""
             if r.status == 404:
-                return False, 500, False, False
+                return False, 500, False, False, ""
+            if 500 <= r.status < 600:
+                return True, 200, True, True, "5xx"
 
-            return True, 200, True, True
+            return True, 200, True, True, "other"
+        except (socket.timeout, TimeoutError):
+            self.local.conn = None
+            return True, 200, True, True, "timeout"
+        except (ConnectionRefusedError, socket.gaierror):
+            self.local.conn = None
+            return True, 200, True, True, "connect_error"
+        except (OSError, http.client.HTTPException):
+            self.local.conn = None
+            return True, 200, True, True, "io_error"
         except Exception:
             self.local.conn = None
-            return True, 200, True, True
+            return True, 200, True, True, "other"
