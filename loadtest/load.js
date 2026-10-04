@@ -32,6 +32,11 @@ for (const policy of ['order', 'common', 'search']) {
   }
 }
 
+metrics.http_500 = new Counter('http_500');
+metrics.http_502 = new Counter('http_502');
+metrics.http_503 = new Counter('http_503');
+metrics.http_other_unexpected = new Counter('http_other_unexpected');
+
 export const options = { scenarios: {} };
 for (const e of endpoints) {
   options.scenarios[e.name] = {
@@ -62,6 +67,11 @@ function hit(e) {
   } else {
     metrics[e.name + '_unexpected'].add(1);
     metrics[e.policy + '_unexpected'].add(1);
+
+    if (r.status === 500) metrics.http_500.add(1);
+    else if (r.status === 502) metrics.http_502.add(1);
+    else if (r.status === 503) metrics.http_503.add(1);
+    else metrics.http_other_unexpected.add(1);
   }
 
   let body = null;
