@@ -29,7 +29,7 @@ X-RateLimit-Endpoint: <order|common|search>
 | `/api/go/common` | `demo:common` | 300 r/s |
 | `/api/python/search` | `demo:search` | 10 r/s |
 
-The limits are global by logical key. For example all 9 backend processes that call `demo:order` compete for one shared 100 r/s limit.
+The limits are global by logical key. All backend processes that call `demo:order` compete for one shared 100 r/s limit; `demo:common` and `demo:search` work the same way.
 
 ## Start
 
