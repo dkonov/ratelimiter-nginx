@@ -5,6 +5,7 @@ http.setResponseCallback(http.expectedStatuses(200, 429));
 
 const target = __ENV.TARGET_URL || 'http://127.0.0.1:8080';
 const duration = __ENV.DURATION || '30s';
+const unavailableReasons = ['timeout', 'connect_error', 'io_error', '5xx', 'other'];
 
 const endpoints = [
   {name:'java_order', policy:'order', path:'/api/java/order', rate:Number(__ENV.JAVA_ORDER_RPS || 120), backends:['java1','java2','java3']},
@@ -18,7 +19,7 @@ const endpoints = [
 const metrics = {};
 
 for (const e of endpoints) {
-  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected']) {
+  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
     metrics[e.name + '_' + suffix] = new Counter(e.name + '_' + suffix);
   }
   for (const b of e.backends) {
@@ -27,7 +28,7 @@ for (const e of endpoints) {
 }
 
 for (const policy of ['order', 'common', 'search']) {
-  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected']) {
+  for (const suffix of ['200', '429', 'bypass', 'unavailable', 'unexpected', ...unavailableReasons]) {
     metrics[policy + '_' + suffix] = new Counter(policy + '_' + suffix);
   }
 }
@@ -50,9 +51,13 @@ for (const e of endpoints) {
   };
 }
 
-function headerTrue(headers, wanted) {
+function headerValue(headers, wanted) {
   const key = Object.keys(headers).find(k => k.toLowerCase() === wanted.toLowerCase());
-  return key ? String(headers[key]).toLowerCase() === 'true' : false;
+  return key ? String(headers[key]) : '';
+}
+
+function headerTrue(headers, wanted) {
+  return headerValue(headers, wanted).toLowerCase() === 'true';
 }
 
 function hit(e) {
@@ -82,10 +87,24 @@ function hit(e) {
   const bypass = Boolean(body && body.bypass === true) || headerTrue(r.headers, 'X-RateLimit-Bypass');
   const unavailable = Boolean(body && body.unavailable === true) || headerTrue(r.headers, 'X-RateLimit-Unavailable');
 
+  let unavailableReason = body && typeof body.unavailable_reason === 'string'
+    ? body.unavailable_reason
+    : headerValue(r.headers, 'X-RateLimit-Unavailable-Reason');
+
+  if (unavailable && !unavailableReasons.includes(unavailableReason)) {
+    unavailableReason = 'other';
+  }
+
   metrics[e.name + '_bypass'].add(bypass ? 1 : 0);
   metrics[e.policy + '_bypass'].add(bypass ? 1 : 0);
   metrics[e.name + '_unavailable'].add(unavailable ? 1 : 0);
   metrics[e.policy + '_unavailable'].add(unavailable ? 1 : 0);
+
+  for (const reason of unavailableReasons) {
+    const matched = unavailable && unavailableReason === reason;
+    metrics[e.name + '_' + reason].add(matched ? 1 : 0);
+    metrics[e.policy + '_' + reason].add(matched ? 1 : 0);
+  }
 
   if (body && body.backend && metrics[e.name + '_' + body.backend]) {
     metrics[e.name + '_' + body.backend].add(1);
