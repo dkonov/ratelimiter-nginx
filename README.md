@@ -1,35 +1,27 @@
 # ratelimiter-nginx
 
-Minimal demo of a centralized rate limiter built only on standard NGINX.
+Minimal demo of a centralized rate limiter built with pure NGINX.
 
 ## Topology
 
 - `nginx1` — incoming router/load balancer.
-- `nginx2` — central rate limiter.
-- 3 Go instances: `go1..go3`.
-- 3 Java instances: `java1..java3`.
-- 3 Python instances: `python1..python3`.
-- `k6` — load generator.
+- `nginx2` — centralized rate limiter.
+- Go backend — 3 instances.
+- Java backend — 3 instances.
+- Python backend — 3 instances.
+- `k6` — load generator and summary by endpoint/backend.
 
-Each backend has a tiny language-specific rate-limit client. Before executing an endpoint it sends synchronous `POST /check` to nginx2 with:
+All application endpoints answer immediately. Before business handling, each backend synchronously calls `nginx2 /check` through its language-specific rate-limit library.
 
-```text
-X-RateLimit-Service: demo
-X-RateLimit-Endpoint: <order|common|search>
-```
+## Rate-limit policies
 
-## Endpoints and shared policies
+| Logical key | Limit | Physical endpoints |
+|---|---:|---|
+| `demo:order` | 100 r/s | `/api/java/order`, `/api/go/ordrer`, `/api/python/order` |
+| `demo:common` | 300 r/s | `/api/java/common`, `/api/go/common` |
+| `demo:search` | 10 r/s | `/api/python/search` |
 
-| Endpoint | Policy | Limit |
-|---|---|---:|
-| `/api/java/order` | `demo:order` | 100 r/s |
-| `/api/go/ordrer` | `demo:order` | 100 r/s |
-| `/api/python/order` | `demo:order` | 100 r/s |
-| `/api/java/common` | `demo:common` | 300 r/s |
-| `/api/go/common` | `demo:common` | 300 r/s |
-| `/api/python/search` | `demo:search` | 10 r/s |
-
-The limits are global by logical key. All backend processes that call `demo:order` compete for one shared 100 r/s limit; `demo:common` and `demo:search` work the same way.
+The limit is shared by all backend instances and by all physical endpoints that use the same logical key.
 
 ## Start
 
@@ -37,45 +29,52 @@ The limits are global by logical key. All backend processes that call `demo:orde
 docker compose up -d --build
 ```
 
-Smoke test:
+## Quick checks
 
 ```bash
-curl http://localhost:8080/api/java/order
-curl http://localhost:8080/api/go/ordrer
-curl http://localhost:8080/api/python/order
-curl http://localhost:8080/api/java/common
-curl http://localhost:8080/api/go/common
-curl http://localhost:8080/api/python/search
+curl -i http://localhost:8080/api/java/order
+curl -i http://localhost:8080/api/java/common
+curl -i http://localhost:8080/api/go/ordrer
+curl -i http://localhost:8080/api/go/common
+curl -i http://localhost:8080/api/python/order
+curl -i http://localhost:8080/api/python/search
 ```
+
+Every response contains `X-Backend-Instance`, for example `java2`, `go1`, or `python3`.
 
 ## Load test
 
+Default test intentionally exceeds all three shared limits:
+
+- Java order: 60 r/s
+- Go order: 60 r/s
+- Python order: 60 r/s
+- Java common: 200 r/s
+- Go common: 200 r/s
+- Python search: 20 r/s
+
+Run for 30 seconds:
+
 ```bash
-sh loadtest/run.sh
+docker compose --profile load run --rm k6 run /scripts/load.js
 ```
 
-Override per-endpoint rates independently:
+Override any rate or duration:
 
 ```bash
-DURATION=30s \
-JAVA_ORDER_RPS=50 GO_ORDER_RPS=50 PYTHON_ORDER_RPS=50 \
-JAVA_COMMON_RPS=200 GO_COMMON_RPS=200 \
-PYTHON_SEARCH_RPS=30 \
-sh loadtest/run.sh
+docker compose --profile load run --rm \
+  -e DURATION=60s \
+  -e JAVA_ORDER_RATE=80 \
+  -e GO_ORDRER_RATE=80 \
+  -e PYTHON_ORDER_RATE=80 \
+  -e JAVA_COMMON_RATE=250 \
+  -e GO_COMMON_RATE=250 \
+  -e PYTHON_SEARCH_RATE=30 \
+  k6 run /scripts/load.js
 ```
 
-k6 prints counters for every endpoint/status and every backend instance, for example:
+The k6 script prints three tables:
 
-```text
-java_order_200
-java_order_429
-java_order_java1
-java_order_java2
-java_order_java3
-...
-python_search_python1
-python_search_python2
-python_search_python3
-```
-
-This makes it visible both how the global limiter behaves and how nginx1 distributes traffic between instances.
+1. Per physical endpoint: total / 200 / 429 / other.
+2. Per logical policy: combined total / 200 / 429.
+3. Per backend instance: total / 200 / 429 / other.

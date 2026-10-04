@@ -1,4 +1,72 @@
 services:
+  nginx2:
+    image: nginx:1.30.4-alpine
+    volumes:
+      - ./nginx2/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  java1: &java_backend
+    build:
+      context: .
+      dockerfile: java/Dockerfile
+    environment:
+      BACKEND_INSTANCE: java1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on: [nginx2]
+
+  java2:
+    <<: *java_backend
+    environment:
+      BACKEND_INSTANCE: java2
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  java3:
+    <<: *java_backend
+    environment:
+      BACKEND_INSTANCE: java3
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  go1: &go_backend
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    environment:
+      BACKEND_INSTANCE: go1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on: [nginx2]
+
+  go2:
+    <<: *go_backend
+    environment:
+      BACKEND_INSTANCE: go2
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  go3:
+    <<: *go_backend
+    environment:
+      BACKEND_INSTANCE: go3
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  python1: &python_backend
+    build:
+      context: .
+      dockerfile: python/Dockerfile
+    environment:
+      BACKEND_INSTANCE: python1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on: [nginx2]
+
+  python2:
+    <<: *python_backend
+    environment:
+      BACKEND_INSTANCE: python2
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  python3:
+    <<: *python_backend
+    environment:
+      BACKEND_INSTANCE: python3
+      RATE_LIMITER_URL: http://nginx2:8080
+
   nginx1:
     image: nginx:1.30.4-alpine
     ports:
@@ -6,79 +74,21 @@ services:
     volumes:
       - ./nginx1/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - go1
-      - go2
-      - go3
       - java1
       - java2
       - java3
+      - go1
+      - go2
+      - go3
       - python1
       - python2
       - python3
-
-  nginx2:
-    image: nginx:1.30.4-alpine
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./nginx2/nginx.conf:/etc/nginx/nginx.conf:ro
-
-  go1: &go
-    build: ./go-backend
-    environment:
-      INSTANCE_NAME: go1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  go2:
-    <<: *go
-    environment:
-      INSTANCE_NAME: go2
-      RATE_LIMITER_URL: http://nginx2:8080
-  go3:
-    <<: *go
-    environment:
-      INSTANCE_NAME: go3
-      RATE_LIMITER_URL: http://nginx2:8080
-
-  java1: &java
-    build: ./java-backend
-    environment:
-      INSTANCE_NAME: java1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  java2:
-    <<: *java
-    environment:
-      INSTANCE_NAME: java2
-      RATE_LIMITER_URL: http://nginx2:8080
-  java3:
-    <<: *java
-    environment:
-      INSTANCE_NAME: java3
-      RATE_LIMITER_URL: http://nginx2:8080
-
-  python1: &python
-    build: ./python-backend
-    environment:
-      INSTANCE_NAME: python1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  python2:
-    <<: *python
-    environment:
-      INSTANCE_NAME: python2
-      RATE_LIMITER_URL: http://nginx2:8080
-  python3:
-    <<: *python
-    environment:
-      INSTANCE_NAME: python3
-      RATE_LIMITER_URL: http://nginx2:8080
 
   k6:
     image: grafana/k6:latest
     profiles: ["load"]
     volumes:
-      - ./loadtest:/scripts:ro
+      - ./k6:/scripts:ro
     environment:
       TARGET_URL: http://nginx1:8080
     depends_on: [nginx1]
