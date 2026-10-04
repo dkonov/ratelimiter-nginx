@@ -1,6 +1,80 @@
 services:
+  nginx2:
+    image: nginx:1.30.4-alpine
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./nginx2/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
+
+  go1: &go
+    build: ./go-backend
+    restart: unless-stopped
+    environment:
+      INSTANCE_NAME: go1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on:
+      nginx2:
+        condition: service_healthy
+  go2:
+    <<: *go
+    environment:
+      INSTANCE_NAME: go2
+      RATE_LIMITER_URL: http://nginx2:8080
+  go3:
+    <<: *go
+    environment:
+      INSTANCE_NAME: go3
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  java1: &java
+    build: ./java-backend
+    restart: unless-stopped
+    environment:
+      INSTANCE_NAME: java1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on:
+      nginx2:
+        condition: service_healthy
+  java2:
+    <<: *java
+    environment:
+      INSTANCE_NAME: java2
+      RATE_LIMITER_URL: http://nginx2:8080
+  java3:
+    <<: *java
+    environment:
+      INSTANCE_NAME: java3
+      RATE_LIMITER_URL: http://nginx2:8080
+
+  python1: &python
+    build: ./python-backend
+    restart: unless-stopped
+    environment:
+      INSTANCE_NAME: python1
+      RATE_LIMITER_URL: http://nginx2:8080
+    depends_on:
+      nginx2:
+        condition: service_healthy
+  python2:
+    <<: *python
+    environment:
+      INSTANCE_NAME: python2
+      RATE_LIMITER_URL: http://nginx2:8080
+  python3:
+    <<: *python
+    environment:
+      INSTANCE_NAME: python3
+      RATE_LIMITER_URL: http://nginx2:8080
+
   nginx1:
     image: nginx:1.30.4-alpine
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
@@ -15,70 +89,8 @@ services:
       - python1
       - python2
       - python3
-
-  nginx2:
-    image: nginx:1.30.4-alpine
-    ports:
-      - "8081:8080"
-    volumes:
-      - ./nginx2/nginx.conf:/etc/nginx/nginx.conf:ro
-
-  go1: &go
-    build: ./go-backend
-    environment:
-      INSTANCE_NAME: go1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  go2:
-    <<: *go
-    environment:
-      INSTANCE_NAME: go2
-      RATE_LIMITER_URL: http://nginx2:8080
-  go3:
-    <<: *go
-    environment:
-      INSTANCE_NAME: go3
-      RATE_LIMITER_URL: http://nginx2:8080
-
-  java1: &java
-    build: ./java-backend
-    environment:
-      INSTANCE_NAME: java1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  java2:
-    <<: *java
-    environment:
-      INSTANCE_NAME: java2
-      RATE_LIMITER_URL: http://nginx2:8080
-  java3:
-    <<: *java
-    environment:
-      INSTANCE_NAME: java3
-      RATE_LIMITER_URL: http://nginx2:8080
-
-  python1: &python
-    build: ./python-backend
-    environment:
-      INSTANCE_NAME: python1
-      RATE_LIMITER_URL: http://nginx2:8080
-    depends_on: [nginx2]
-  python2:
-    <<: *python
-    environment:
-      INSTANCE_NAME: python2
-      RATE_LIMITER_URL: http://nginx2:8080
-  python3:
-    <<: *python
-    environment:
-      INSTANCE_NAME: python3
-      RATE_LIMITER_URL: http://nginx2:8080
-
-  k6:
-    image: grafana/k6:latest
-    profiles: ["load"]
-    volumes:
-      - ./loadtest:/scripts:ro
-    environment:
-      TARGET_URL: http://nginx1:8080
-    depends_on: [nginx1]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
