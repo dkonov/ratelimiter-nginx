@@ -3,7 +3,7 @@ set -eu
 
 fail() {
   echo
-  echo "ERROR: nginx1 did not become ready"
+  echo "ERROR: application stack did not become ready"
   echo "=== docker compose ps ==="
   docker compose ps -a || true
   echo
@@ -12,6 +12,9 @@ fail() {
   echo
   echo "=== nginx2 logs ==="
   docker compose logs --tail=100 nginx2 || true
+  echo
+  echo "=== backend logs ==="
+  docker compose logs --tail=50 go1 go2 go3 java1 java2 java3 python1 python2 python3 || true
   exit 1
 }
 
@@ -26,7 +29,17 @@ health_ok() {
 }
 
 echo "=== starting application stack ==="
-docker compose up -d --build
+if ! docker compose up -d --build; then
+  fail
+fi
+
+echo
+echo "=== validating nginx1 configuration ==="
+docker compose exec -T nginx1 nginx -t || fail
+
+# Force nginx1 to reload all upstream state before the test. Dynamic DNS in
+# nginx1 keeps container IP changes in sync during later backend recreations.
+docker compose restart nginx1 >/dev/null
 
 ready=0
 i=0
@@ -42,11 +55,11 @@ done
 [ "$ready" -eq 1 ] || fail
 
 echo
- echo "=== application is ready ==="
+echo "=== application is ready ==="
 docker compose ps
 
 echo
- echo "=== starting k6 ==="
+echo "=== starting k6 ==="
 docker run --rm --network host \
   -v "$(pwd)/loadtest:/scripts:ro" \
   -e TARGET_URL="http://127.0.0.1:8080" \
