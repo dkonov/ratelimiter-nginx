@@ -21,6 +21,11 @@ services:
     depends_on:
       nginx2:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
   go2:
     <<: *go
     environment:
@@ -41,6 +46,11 @@ services:
     depends_on:
       nginx2:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
   java2:
     <<: *java
     environment:
@@ -61,6 +71,11 @@ services:
     depends_on:
       nginx2:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 20
   python2:
     <<: *python
     environment:
@@ -80,15 +95,24 @@ services:
     volumes:
       - ./nginx1/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - go1
-      - go2
-      - go3
-      - java1
-      - java2
-      - java3
-      - python1
-      - python2
-      - python3
+      go1:
+        condition: service_healthy
+      go2:
+        condition: service_healthy
+      go3:
+        condition: service_healthy
+      java1:
+        condition: service_healthy
+      java2:
+        condition: service_healthy
+      java3:
+        condition: service_healthy
+      python1:
+        condition: service_healthy
+      python2:
+        condition: service_healthy
+      python3:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 2s
