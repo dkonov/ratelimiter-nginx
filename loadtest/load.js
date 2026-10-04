@@ -45,6 +45,11 @@ for (const e of endpoints) {
   };
 }
 
+function headerTrue(headers, wanted) {
+  const key = Object.keys(headers).find(k => k.toLowerCase() === wanted.toLowerCase());
+  return key ? String(headers[key]).toLowerCase() === 'true' : false;
+}
+
 function hit(e) {
   const r = http.get(target + e.path);
 
@@ -59,24 +64,22 @@ function hit(e) {
     metrics[e.policy + '_unexpected'].add(1);
   }
 
-  const bypass = r.headers['X-RateLimit-Bypass'] === 'true';
-  const unavailable = r.headers['X-RateLimit-Unavailable'] === 'true';
-
-  if (bypass) {
-    metrics[e.name + '_bypass'].add(1);
-    metrics[e.policy + '_bypass'].add(1);
-  }
-  if (unavailable) {
-    metrics[e.name + '_unavailable'].add(1);
-    metrics[e.policy + '_unavailable'].add(1);
-  }
-
+  let body = null;
   try {
-    const body = r.json();
-    if (body.backend && metrics[e.name + '_' + body.backend]) {
-      metrics[e.name + '_' + body.backend].add(1);
-    }
+    body = r.json();
   } catch (_) {}
+
+  const bypass = Boolean(body && body.bypass === true) || headerTrue(r.headers, 'X-RateLimit-Bypass');
+  const unavailable = Boolean(body && body.unavailable === true) || headerTrue(r.headers, 'X-RateLimit-Unavailable');
+
+  metrics[e.name + '_bypass'].add(bypass ? 1 : 0);
+  metrics[e.policy + '_bypass'].add(bypass ? 1 : 0);
+  metrics[e.name + '_unavailable'].add(unavailable ? 1 : 0);
+  metrics[e.policy + '_unavailable'].add(unavailable ? 1 : 0);
+
+  if (body && body.backend && metrics[e.name + '_' + body.backend]) {
+    metrics[e.name + '_' + body.backend].add(1);
+  }
 }
 
 export function java_order() { hit(endpoints[0]); }
