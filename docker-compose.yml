@@ -1,0 +1,94 @@
+services:
+  nginx1:
+    image: nginx:1.30.4-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx1/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend1:
+        condition: service_healthy
+      backend2:
+        condition: service_healthy
+      backend3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  nginx2:
+    image: nginx:1.30.4-alpine
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./nginx2/nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  backend1:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: &backend_env
+      BACKEND_NAME: backend1
+      SERVICE_NAME: demo
+      RATE_LIMITER_URL: http://nginx2:8080
+      RATE_LIMITER_FAIL_MODE: open
+      RATE_LIMITER_CONNECT_TIMEOUT_MS: "20"
+      RATE_LIMITER_TIMEOUT_MS: "50"
+    depends_on:
+      nginx2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  backend2:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend_env
+      BACKEND_NAME: backend2
+    depends_on:
+      nginx2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  backend3:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend_env
+      BACKEND_NAME: backend3
+    depends_on:
+      nginx2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  k6:
+    image: grafana/k6:latest
+    profiles: ["load"]
+    volumes:
+      - ./k6:/scripts:ro
+    environment:
+      TARGET_URL: http://nginx1:8080
+    depends_on:
+      nginx1:
+        condition: service_healthy
